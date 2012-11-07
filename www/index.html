@@ -1,0 +1,393 @@
+<!doctype html>
+<html>
+  <head>
+    <script src="//ajax.googleapis.com/ajax/libs/jquery/1.8.2/jquery.min.js"></script>
+    <script src="https://raw.github.com/olado/doT/master/doT.min.js"></script>
+    <script type="text/javascript" src="raphael-min.js"></script>
+    <script type="text/javascript" src="date.js"></script>
+
+    <script id="top-template" type="text/x-dot-template">
+    <div class="top-col">
+      {{~it.users :user:index}}
+      <div class="user">{{=index+1+it.offset}}. {{=user.nick}} <span class="total">{{=user.total}}</span></div>
+      {{~}}
+    </div>
+    </script>
+
+    <script id="user-template" type="text/x-dot-template">
+    <div class="two-col">
+      <div class="col">
+        <h2>Top 10 by percentage</h2>
+        <div id="totals-graph"></div>
+      </div>
+      <div class="col">
+        <h2>Total posts by hour</h2>
+        <div id="hours-graph"></div>
+      </div>
+    </div>
+    <h2>Top 10 Hourly Totals (GMT{{=it.tz}})</h2>
+    <div class="user-totals">
+      {{~it.users :user:index}}
+      <h3>{{=index+1}}. {{=user.nick}} {{=user.aliases}}: {{=user.total}} lines</h3>
+        <div id="{{=user.nick}}-graph"></div>
+      {{~}}
+  </div>
+    </script>
+    <style>
+    @import url(http://fonts.googleapis.com/css?family=Lobster);
+
+    body {
+      background-color: #eee;
+      color: #555;
+      font-family: 'Helvetica Neue', 'Helvetica', 'Arial', sans-serif;
+      font-size: 12pt;
+      text-shadow: 0px 1px 0px rgba(255,255,255,0.5);
+      letter-spacing: -1px;
+    }
+
+    svg {
+      text-shadow: none;
+    }
+
+    h1, h2 {
+      color: #c22;
+      margin: 0;
+      margin-top: 20px;
+      margin-bottom: 10px;
+    }
+
+    h1 {
+      font-family: 'Lobster', cursive;
+      color: #c22;
+      text-align: center;
+    }
+
+    h2 {
+      border-bottom: 1px solid #999;
+    }
+
+    .user {
+      text-overflow: ellipsis;
+      overflow: hidden;
+      height: 1.3em;
+    }
+
+    .content {
+      width: 960px;
+      margin: 0 auto;
+      display: none;
+    }
+
+    .top {
+      overflow: hidden;
+    }
+
+    .top-col {
+      float: left;
+      width: 22%;
+      padding: 10px 10px;
+    }
+
+    .total {
+      float: right;
+    }
+
+    .user-totals {
+      padding: 0 10px;
+    }
+
+    .two-col {
+      overflow: hidden;
+    }
+
+    .col {
+      width: 50%;
+      float: left;
+    }
+
+    td:first-child {
+      text-align: right;
+      padding-right: 5px;
+    }
+    </style>
+  </head>
+  <body>
+    <div class="loading"><h1>loading...</h1></div>
+    <div class="content">
+      <h1>#sa-minecraft stats</h1>
+      <div class="top">
+        <h2>Top IRCers</h2>
+      </div>
+    </div>
+  </body>
+  <script>
+    function get_colors() {
+      var user_colors = [];
+      for (var i = 0; i < 10; i++) {
+        user_colors.push(Raphael.hsb(i/11, 1.0, 0.9));
+      }
+      return user_colors;
+    }
+
+    $(function() {
+      $.getJSON('stats.json', function(json) {
+        var users = [];
+        var total = 0;
+        for (var nick in json) {
+          var t = json[nick].lines.reduce(function(a,b) { return a+b });
+          total += t;
+          users.push({
+            'nick': nick,
+            'aliases': json[nick].aliases.length === 0 ? '' : '(' + json[nick].aliases.join(', ') + ')',
+            'lines': json[nick].lines,
+            'total': t
+          });
+        }
+
+        // tz offset
+        var tz = new Date().getTimezoneOffset() / 60;
+        if (tz !== 0) {
+          users.forEach(function(user, i) {
+            var n = [];
+            for (var i = 0; i < user.lines.length; i++) {
+              var x = (i - tz) % 24;
+              if (x < 0)
+                x = 24 + x;
+              n[x] = user.lines[i];
+            }
+            user.lines = n;
+          });
+        }
+
+        users.sort(function(a, b) {
+          return b.total  - a.total;
+        });
+
+        tz = -tz;
+        tz = tz > 0 ? '+' + tz : tz;
+        tz = tz === 0 ? '' : tz;
+
+        var user_tmpl = doT.template($('#user-template').text());
+        var top_tmpl = doT.template($('#top-template').text());
+
+        var split_users = [];
+        for (var i = 0; i < 40 && i < users.length; i += 10) {
+          split_users.push(users.slice(i, i + 10));
+        }
+
+        var html = '';
+
+        split_users.forEach(function(users, i) {
+          html += top_tmpl({'users': users, 'offset': i*10});
+        });
+
+        var user_average = total / users.length;
+        var hours = [];
+
+        users.forEach(function(user) {
+          for (var i = 0; i < user.lines.length; i++) {
+            hours[i] = hours[i] + user.lines[i] || user.lines[i];
+          }
+        });
+
+        $('.top').append(html);
+
+        var not_top = users.splice(10);
+        html = user_tmpl({
+          'users': users,
+          'tz': tz,
+          'total': total,
+        });
+        $('.content').append(html);
+
+        var text_color = '#555';
+
+        $('.loading').hide();
+        $('.content').show();
+
+        var p = []
+        users.concat(not_top).forEach(function(user) {
+          for (var i = 0; i < user.lines.length; i++) {
+            var t = String(i).length == 1 ? '0' + i : String(i);
+            t += ':00';
+            var o = p[i] || {'label': t, 'value': 0}
+            o.value += user.lines[i];
+            p[i] = o;
+          }
+        });
+        var c = ['#223388', '#364288', '#4A5188', '#5E6088', '#726F88', '#867E88', '#9A8E89', '#AE9D89', '#C2AC89', '#D6BB89', '#EACA89', '#FFDA8A'];
+        var cr = c.slice(0).reverse();
+        pie('hours-graph', p.reverse(), c.concat(cr), true, 'hover for\nhour');
+
+        var others = not_top.reduce(function(a, b) { return a + b.total; }, 0);
+
+        function pie(elm, data, colors, onelabel, hover) {
+          colors = colors || get_colors();
+          hover = hover || false;
+          onelabel = onelabel || false;
+          var w = 450;
+          var h = 250;
+          if (onelabel) {
+            var cx = w/2;
+            var cy = h/2
+          } else {
+            var cx = w/3;
+            var cy = 130;
+          }
+          var r = 100
+          var rad = Math.PI / 180;
+
+          var paper = Raphael(elm, w, h);
+
+          function segment(cx, cy, r, startAngle, endAngle, params) {
+            var x1 = cx + r * Math.cos(-startAngle * rad);
+            var x2 = cx + r * Math.cos(-endAngle * rad);
+            var y1 = cy + r * Math.sin(-startAngle * rad);
+            var y2 = cy + r * Math.sin(-endAngle * rad);
+            return ["M", cx, cy, "L", x1, y1, "A", r, r, 0, +(endAngle - startAngle > 180), 0, x2, y2, "z"];
+          }
+
+          var circle = paper.circle(cx, cy, r/2).attr({fill: '#eee', 'stroke-width': 0});
+
+          var angle = 90;
+          var step = 1 / (data.length + 1);
+          var segments = paper.set();
+
+          var total = data.reduce(function(a, d) {
+            return a + d.value;
+          }, 0);
+
+          if (onelabel)
+            var fs = 24;
+          else
+            var fs = h / data.length;
+          fs -= 2;
+
+          if (onelabel) {
+            var hovertxt = paper.text(cx, cy, hover).attr({
+              'font-size': fs-2,
+              'fill-opacity': 0.7
+            });
+          }
+          data.forEach(function(datum, i) {
+            var txt = paper.set()
+            var s = 360 * datum.value / total;
+            var color = datum.color ? datum.color : colors.pop();
+            colors.unshift(color);
+
+            var txt = paper.set()
+            var p = paper.path(segment(cx, cy, r, angle, angle + s)).attr({'fill': color, stroke: '#eee', 'stroke-width': 3, 'fill-opacity': 0.7}).toBack();
+
+            if (onelabel)
+              var txopacity = 0.0;
+            else
+              var txopacity = 0.7;
+            p.hover(function() {
+              if (hovertxt)
+                hovertxt.animate({'fill-opacity': 0.0}, 150);
+
+              p.animate({'fill-opacity': 1.0}, 150);
+              txt.forEach(function(t) {
+                t.animate({'fill-opacity': 1.0}, 150);
+              });
+            }, function() {
+              if (hovertxt)
+                hovertxt.animate({'fill-opacity': 0.7}, 150);
+
+              p.animate({'fill-opacity': 0.7}, 150);
+              txt.forEach(function(t) {
+                if (t.data('fade'))
+                  t.animate({'fill-opacity': t.data('fade')}, 150);
+                else
+                  t.animate({'fill-opacity': txopacity}, 150);
+              });
+            });
+            angle += s;
+            segments.push(p);
+
+            if (onelabel) {
+              var ta = 'middle';
+              var tx = cx;
+              var ty = cy;
+            } else {
+              var ta = 'end';
+              var tx = w - 15;
+              var ty = -((i+2)*fs - h) + fs/2;
+            }
+            if (!onelabel) {
+              txt.push(paper.rect(tx+5, ty-4, 10, 10).attr({
+                fill: color,
+                'fill-opacity': 0.7,
+                'stroke-width': 0
+              }));
+            }
+            txt.push(paper.text(tx, ty, datum.label).attr({
+              fill: '#555',
+              'text-anchor': ta,
+              'font-family': "'Helvetica Neue', 'Helvetica', 'Arial', sans-serif",
+              'font-size': fs,
+              'fill-opacity': txopacity
+            }).toFront());
+            if (s > 5) {
+              txt.push(paper.text(
+                (cx-15) + 120 * Math.cos(rad * (angle - s/2)),
+                (cy-3) + 115 * -Math.sin(rad * (angle - s/2)),
+                (100*datum.value/total).toFixed(1) + '%').attr({
+                  fill: '#555',
+                  'text-anchor': 'start',
+                  'font-family': "'Helvetica Neue', 'Helvetica', 'Arial', sans-serif",
+                  'font-size': 14,
+                  'font-weight': 'bold',
+                  'fill-opacity': 0.7,
+              }).toFront().data('fade', 0.7));
+            }
+          });
+        }
+
+        var p = [];
+        users.reverse().forEach(function(user) {
+          p.push({
+            value: user.total,
+            label: user.nick,
+          });
+        });
+        p.unshift({value: others, label: 'others', color: '#777'});
+        pie('totals-graph', p);
+
+        var w = 940;
+        var h = 60;
+        var xoffset = 10;
+
+        var user_colors = get_colors();
+
+        users.forEach(function(user) {
+          var max = Math.max.apply(Math, user.lines);
+          var s = w / user.lines.length;
+          var ss = s / 2;
+          var uc = user_colors.pop();
+          Raphael(user.nick + '-graph', w, h + 15, function() {
+            Raphael.color('white');
+            for (var i = 0; i < user.lines.length; i++) {
+              var x = (i / user.lines.length) * w + xoffset;
+              var y =  h - Math.floor((user.lines[i] / max) * h);
+              this.rect(x - ss + 5, y, s - 5, h - y).attr({fill: uc, 'stroke-width': 0});
+              t = String(i).length == 1 ? '0' + i : String(i);
+              this.text(x, h + 10, t).attr({fill: text_color});
+
+              var hover = {
+                elm: this.text(x, 10, user.lines[i]).attr({fill: text_color}).hide(),
+              };
+              this.rect(x-15, 0, 30, h).attr({fill: 'white', opacity: 0}).hover(function() {
+                this.elm.show().toFront();
+              }, function() {
+                this.elm.hide();
+              }, hover, hover);
+            }
+            this.rect(0, h, w, 1).attr({fill: uc, 'stroke-width': 0});
+          });
+        });
+      });
+    });
+  </script>
+</html>
+
