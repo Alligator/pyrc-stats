@@ -10,7 +10,7 @@ ircstats.py houses the IRCStats class, it outputs (and reads) json in the follow
     {
       "current_nick": {
         "aliases": ["dave", "nigel", "partario"],
-        "lines": 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+        "lines": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
       }
     }
 
@@ -35,6 +35,10 @@ hour (int): the hour the message was sent, 0-23.
 old (string): the old nick being changed from.
 
 new (string): the new nick being changed to.
+
+### IRCStats.write()
+
+writes whatever file was previously specified in the constructor
 
 ## the web bit
 
